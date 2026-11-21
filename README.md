@@ -117,4 +117,6 @@ The tests use disposable Git repos and stub network and application calls. They 
 
 For a native render check, get the official Herdr App 0.1.16 executable and a Git checkout with tag `v0.1.16`. Run `sh tests/check-herdr.sh /path/to/app-checkout /path/to/herdr-app /path/to/hc`. This installs into a temporary home and uses the real app checker for the three copied mods and the busy and error dialog renders. On Linux with no system fonts, set `DEVVM_TEST_FONT_DIR` to a directory of fallback fonts. This is not a live SSH, VM, or keyboard test. For a full smoke test, use a disposable desktop Core session and source repo. Create a guest space, check that a new tab runs in the guest, then repeat the same branch and verify that it selects the same space.
 
-No license for this package is included. The Herdr files copied at install time remain subject to [Herdr App's upstream license](https://github.com/herdrdev/herdr-app/blob/v0.1.16/LICENSE).
+## License
+
+This mod uses the [MIT License](LICENSE). The Herdr files copied at install time remain subject to [Herdr App's upstream license](https://github.com/herdrdev/herdr-app/blob/v0.1.16/LICENSE).
