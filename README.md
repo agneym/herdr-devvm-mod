@@ -4,7 +4,7 @@ Right-click a Git space and choose **New DevVM Space** to open a branch in a Dev
 
 The source checkout can be local or on a macOS or Linux machine connected to Herdr over SSH. This is a personal mod, not a built-in Herdr feature. Install it only if you trust it to run commands as your desktop and source users.
 
-![The New DevVM Space action in Herdr’s context menu](https://raw.githubusercontent.com/agneym/herdr-devvm-mod/main/preview.png)
+![The New DevVM Space action in Herdr’s context menu](https://raw.githubusercontent.com/agneym/herdr-devvm-mod/main/preview.webp)
 
 See the [Herdr Mods gallery recipe](https://github.com/agneym/herdr-devvm-mod/blob/main/RECIPE.md).
 
