@@ -6,32 +6,24 @@ The source checkout can be local or on a macOS or Linux machine connected to Her
 
 ## Prerequisites
 
-- **Herdr App 0.1.16** on Linux or macOS. The installer patches copies of this release’s default layout and mods.
+- **Herdr App 0.1.16** on Linux or macOS. The release bundles patched copies of this version’s default layout and mods.
 - **Herdr Core (`hc`) 0.1.13 or later in the stable 0.1.x series** on the desktop and any SSH source. The tested baseline is 0.1.13.
 - [**DevVM 0.1.0**](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/getting-started/install.md) already installed and working on the source host, with Git (`rev-parse --path-format`) and OpenSSH 8.7+. The mod does not install DevVM or its dependencies.
-- **Python 3.9+** on the desktop for the installer.
 
 Source hosts can run Linux (x86_64 or arm64) or macOS 13+. The mod has not been live-tested on macOS, and upstream DevVM has not been tested on Intel Macs. Windows and Herdr sources registered with `--via` are not supported.
 
 ## Install and activate
 
-Open Herdr App 0.1.16 once to create its default files. From this repo, run the check that matches your checkout:
+Open Herdr App 0.1.16 once to create its default files. Download `herdr-devvm-mod.tar.gz` from the [latest release](https://github.com/agneym/herdr-devvm-mod/releases/latest), not GitHub’s **Source code** archive. Extract it and run the installer from the extracted directory. No Python is needed.
 
 ```sh
-python3 install.py --check --local          # Local checkout
-python3 install.py --check --source devbox  # SSH checkout; use its SSH target
-```
-
-For a remote checkout, the SSH target must already be registered in Herdr. See [Remote checkouts](#remote-checkouts) if needed. The check validates the CLI versions, layout, and basic host dependencies without starting a VM. Use `--check` alone to skip the host checks.
-
-Then install the mod and switch layouts:
-
-```sh
-python3 install.py
+tar -xzf herdr-devvm-mod.tar.gz
+cd herdr-devvm-mod
+sh install.sh
 herdr-app do layout.switch --name main-devvm
 ```
 
-The installer creates `layouts/main-devvm.json` and `mods/devvm-{spaces,menu,worktree}` without modifying existing files. If you use custom paths, pass `--app` for the app CLI, `--core` for the Core CLI used by `--check`, or `--app-home` for the app config directory. The installer and running app must use the same app home (`$HERDR_APP_HOME`, otherwise `${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app`).
+The installer creates `layouts/main-devvm.json` and `mods/devvm-{spaces,menu,worktree}` without modifying existing files. Run `sh install.sh --check` to validate the bundle, app version, and destination without writing files. For host checks, run `devvm doctor` on the source host or use **Check setup** in the dialog. For custom paths, pass `--app PATH` or `--app-home DIR`. The installer and running app must use the same app home (`$HERDR_APP_HOME`, otherwise `${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app`).
 
 ### Remote checkouts
 
@@ -87,7 +79,7 @@ Fix the issue and choose **Retry**, or reopen the dialog from the same repo and 
 
 | If this happens | Try this |
 | --- | --- |
-| **New DevVM Space** is missing | Check that `main-devvm` is active, the space is in a Git repo, and the matching installer host check passes. |
+| **New DevVM Space** is missing | Check that `main-devvm` is active, the space is in a Git repo, and DevVM is installed on the machine that owns the checkout. |
 | Host check fails | Run `devvm doctor` on the source host and check that Herdr can find the required tools. For remote sources, also verify batch SSH and make sure remote shell startup does not print to stdout. |
 | Worktree setup fails | Check the branch and `worktrees.directory`. Use a different branch if the requested one is checked out elsewhere. |
 | Boot fails or times out | Check `devvm ls` and the log from **Copy details**. The mod waits up to 10 minutes. If DevVM needs input or more time, run `devvm --clone` interactively from the exact worktree, then exit the guest shell and retry. |
@@ -99,7 +91,9 @@ Fix the issue and choose **Retry**, or reopen the dialog from the same repo and 
 - To remove or reinstall the mod, switch back with `herdr-app do layout.switch --name main`, then back up and move the four installed paths listed above. Switch back to `main` before upgrading Herdr; copied layouts and mods don’t update with the app.
 - Registered guests still need the installed `bridge.sh` at the same path to reconnect. Moving the app home, changing the SSH target, or moving DevVM’s data directory can require re-registering the guest.
 
-## Tests
+## Build and test
+
+Python is only needed to build or test from source. The release workflow runs `python3 -B build_release.py /path/to/herdr-app/defaults dist` against the upstream v0.1.16 source and smoke-tests the archive with `sh tests/check-release.sh dist/herdr-devvm-mod.tar.gz`.
 
 ```sh
 python3 -B -m unittest discover -s tests -v

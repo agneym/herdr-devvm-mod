@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: herdrdev/herdr-app
+          # Herdr App v0.1.16
+          ref: 034f8b85f7e6bb71f8ff55cb4a80c548b2578c0f
+          path: upstream
+      - run: python3 -B -m unittest discover -s tests -v
+      - run: node --test tests/dialog.test.mjs
+      - run: |
+          for script in install.sh host.sh bridge.sh tests/check-release.sh; do sh -n "$script" || exit; done
+          python3 -B build_release.py upstream/defaults dist
+          sh tests/check-release.sh dist/herdr-devvm-mod.tar.gz
+          cd dist
+          sha256sum herdr-devvm-mod.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+  macos-smoke:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+      - run: sh tests/check-release.sh dist/herdr-devvm-mod.tar.gz
+  publish:
+    needs: [build, macos-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --notes 'Download and extract `herdr-devvm-mod.tar.gz`, then run `sh install.sh` from the extracted directory. No Python required. This bundle targets Herdr App 0.1.16. See the README for Core and DevVM prerequisites.' \
+            dist/herdr-devvm-mod.tar.gz dist/SHA256SUMS
