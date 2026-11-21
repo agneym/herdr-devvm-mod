@@ -80,20 +80,27 @@ export async function checkDevVM({ on, progress, context }) {
     const remote = ["sh", "-c", script, "herdr-devvm", ...args].map(quote).join(" ");
     return exec("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", source.target, remote], { timeout });
   };
+  const adapter = await step("Invalid DevVM worktree adapter setting", "Set worktrees.devvmAdapter in settings.json to an absolute executable path on the Linux source host, or omit it to use Git.", async () => {
+    const raw = await readTextFile(`${appHome()}/settings.json`);
+    const path = (raw === null ? {} : JSON.parse(raw))?.worktrees?.devvmAdapter;
+    if (path === undefined) return "";
+    if (typeof path !== "string" || !absolute(path)) throw new Error("worktrees.devvmAdapter must be an absolute Linux path.");
+    return path;
+  });
   const config = await step("SSH host setup check failed", "Copy details for the cause. Check batch SSH from the desktop and run devvm doctor on the source host. See First-time setup in the README.", async () => {
-    const path = checked(await sshHost(["preflight"], 30_000));
+    const path = checked(await sshHost(["preflight", adapter], 30_000));
     if (!absolute(path)) throw new Error("Invalid DevVM SSH config path. Check XDG_DATA_HOME and remove extra stdout from SSH shell startup.");
     return path;
   });
-  return { source, mod, script, sshHost, config };
+  return { source, mod, script, sshHost, config, adapter };
 }
 
 export async function createDevVM({ on, cwd, branch, path, progress, context }, cx) {
-  const { source, mod, script, sshHost, config } = await checkDevVM({ on, progress, context });
+  const { source, mod, script, sshHost, config, adapter } = await checkDevVM({ on, progress, context });
 
   progress("Preparing the worktree…");
   const folder = await step("Worktree setup failed", "Check the branch and worktree path in the details. Use a new branch if the requested branch is checked out elsewhere. The mod does not remove checkouts.", async () => {
-    const result = await exec("sh", ["-c", script, "herdr-devvm", "worktree", branch, path], { on, cwd, timeout: 600_000 });
+    const result = await exec("sh", ["-c", script, "herdr-devvm", "worktree", branch, path, adapter], { on, cwd, timeout: 600_000 });
     let out;
     try { out = checked(result); }
     catch (error) {

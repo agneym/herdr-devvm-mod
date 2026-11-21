@@ -12,7 +12,8 @@ let fx;
 globalThis.herdrFixture = {
   appHome: () => "/app with spaces", checking: () => Boolean(fx.checking), exec: (...args) => fx.exec(...args),
   machines: () => fx.ready ? fx.guests.map((g) => ({ name: g.name, layout: "ready" })) : [],
-  notify: (notice) => fx.notices.push(notice), readTextFile: async () => "# helper fixture",
+  notify: (notice) => fx.notices.push(notice),
+  readTextFile: async (path) => path.endsWith("/settings.json") ? fx.settings ?? null : "# helper fixture",
   run: (name, args) => {
     fx.actions.push({ name, args });
     if (name === "space.new" && fx.openSpace) fx.spaces.push({ ...args, id: "vm/space" });
@@ -55,16 +56,18 @@ function fixture() {
     async exec(cmd, args, options) {
       if (cmd === "hc" && args[0] === "--version") return ok("hc 0.1.21\n");
       if (cmd === "hc" && args[1] === "ls") return ok({ machines: [this.source, ...this.guests] });
-      if (cmd === "ssh" && args.at(-1).endsWith("'preflight'")) {
+      if (cmd === "ssh" && args.at(-1).includes(" 'preflight' ")) {
         this.ops.push("preflight");
         assert.equal(args.at(-2), this.source.target);
         assert.ok(args.includes("BatchMode=yes"));
+        assert.ok(args.at(-1).endsWith(`'preflight' '${this.adapter ?? ""}'`));
         if (this.badSSH) throw new Error("Permission denied (publickey).");
         return ok("/source data/devvm/ssh_config\n");
       }
       if (cmd === "sh" && args[3] === "worktree") {
         this.ops.push("worktree");
         assert.equal(options.on, "source");
+        assert.equal(args[6], this.adapter ?? "");
         if (args[4] === "bad branch") return { ...bad("raw validation output from host"), code: 64 };
         assert.equal(args[4], "topic/one");
         return ok(`${folder}\ndirty\n`);
@@ -142,6 +145,16 @@ test("batch SSH error stays in the dialog; copy rejection, then retry the same b
   await settled();
   assert.equal(fx.closed, 1);
   assert.deepEqual(fx.ops, ["preflight", "preflight", "worktree", "boot", "add"]);
+});
+
+test("a configured adapter is passed to preflight and worktree creation", async () => {
+  const { click, start, settled } = fixture();
+  fx.adapter = "/home/user/bin/custom adapter";
+  fx.settings = JSON.stringify({ worktrees: { devvmAdapter: fx.adapter } });
+  click(await start(), "create");
+  await settled();
+  assert.equal(fx.closed, 1);
+  assert.deepEqual(fx.ops, ["preflight", "worktree", "boot", "add"]);
 });
 
 test("invalid branch shows a safe inline message and keeps raw text behind Copy details", async () => {

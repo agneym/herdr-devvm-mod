@@ -72,6 +72,7 @@ def patch_worktree(text):
           const repo = await repoOf(folder, this.on);
           if (!repo) throw new Error(`Could not read a Git checkout at ${folder}. Check Git and the terminal folder.`);
           const directory = await root(userHome);
+          if (directory && !directory.startsWith("/")) throw new Error("worktrees.directory must be a Linux absolute path or start with ~/.");
           return { cwd: repo.top, path: (branch) => `${directory}/${repo.name}/${slug(branch)}` };
         },
       });
@@ -138,11 +139,25 @@ def version(program):
         raise ValueError(f"Could not run {program} --version. Check the executable path. ({error})") from error
 
 
-def check_source(target):
+def source_adapter(home):
+    try:
+        settings = json.loads((home / "settings.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return ""
+    worktrees = settings.get("worktrees") if isinstance(settings, dict) else None
+    if not isinstance(worktrees, dict) or "devvmAdapter" not in worktrees:
+        return ""
+    path = worktrees["devvmAdapter"]
+    if not isinstance(path, str) or not path.startswith("/") or re.search(r"[\x00-\x1f\x7f]", path):
+        raise ValueError("worktrees.devvmAdapter must be an absolute executable path on the Linux source host.")
+    return path
+
+
+def check_source(target, adapter):
     if not target or target.startswith("-") or re.search(r"[\s\x00-\x1f\x7f]", target):
         raise ValueError("Pass one SSH alias or user@host with --source. Put any options in SSH config.")
     script = (BUNDLE / "host.sh").read_text(encoding="utf-8")
-    remote = shlex.join(["sh", "-c", script, "herdr-devvm", "preflight"])
+    remote = shlex.join(["sh", "-c", script, "herdr-devvm", "preflight", adapter])
     try:
         result = subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target, remote],
                                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
@@ -191,7 +206,7 @@ def main():
                 raise ValueError(f"Expected hc 0.1.x (0.1.13 or newer); found {core!r}. Pass --core with the path to the app's Core CLI.")
             print(f"Desktop: {VERSION}, {core}, and shipped layout/mods checked at {home}.")
             if args.source is not None:
-                check_source(args.source)
+                check_source(args.source, source_adapter(home))
             print("Check complete. No mod files installed and no VM started.")
         else:
             install(home, layout_path, layout, sources)

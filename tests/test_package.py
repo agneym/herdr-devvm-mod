@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 import shlex
 import shutil
@@ -107,36 +106,37 @@ class Installer(Fixture):
         self.assertIn("Host key verification failed", failed.stderr)
         self.assertIn("First-time setup", failed.stderr)
         script(self.bin / "ssh", '''test "$*" != "" && test "$3" = BatchMode=yes && test "$7" = build-box || exit 2
-case "$8" in *preflight) printf '/tmp/xdg data/devvm/ssh_config\\n';; *) exit 2;; esac''')
+case "$8" in *preflight*) printf '/tmp/xdg data/devvm/ssh_config\\n';; *) exit 2;; esac''')
         self.assertIn("Source build-box: basic checks passed", self.installer("--check", "--source", "build-box").stdout)
         self.assertEqual(self.snapshot(), self.original)
+
+    def test_source_check_passes_configured_adapter_as_one_argument(self):
+        settings = self.app_home / "settings.json"
+        settings.write_text(json.dumps({"worktrees": {"devvmAdapter": "/home/user/bin/my adapter"}}))
+        script(self.bin / "ssh", '''case "$8" in
+  *"preflight '/home/user/bin/my adapter'") printf '/tmp/devvm/ssh_config\\n' ;;
+  *) exit 2 ;;
+esac''')
+        self.assertIn("basic checks passed", self.installer("--check", "--source", "build-box").stdout)
+        settings.write_text(json.dumps({"worktrees": {"devvmAdapter": "C:/bin/my-adapter"}}))
+        self.assertIn("must be an absolute executable path", self.installer("--check", "--source", "build-box", ok=False).stderr)
 
 
 class Host(Fixture):
     def host(self, *args, cwd=None, ok=True):
         return self.run_cmd("sh", str(PACKAGE / "host.sh"), *args, cwd=cwd, ok=ok)
 
-    def use_wt(self):
-        real = os.environ.get("DEVVM_TEST_WT")
-        if real:
-            (self.bin / "wt").symlink_to(Path(real).resolve())
-        else:
-            script(self.bin / "wt", '''if [ "$1" = --version ]; then echo 'wt 0.82.0'; exit; fi
-set -eu
-[ "$1 $2 $3" = 'switch --no-hooks --no-cd' ]; shift 3
-if [ "$1" = --create ]; then
-    [ "$2 $3" = '--base @' ]; shift 3
-    [ "$1" = --path ]; git worktree add -b "$3" "$2" HEAD
-else
-    [ "$1" = --path ]; git worktree add "$2" "$3"
-fi''')
+    def repo(self):
+        repo = self.root / "repo"
+        repo.mkdir()
+        self.run_cmd("git", "init", "-b", "main", cwd=repo)
+        self.run_cmd("git", "commit", "--allow-empty", "-m", "Initial", cwd=repo)
+        return repo
 
     def test_preflight_version_failure_has_actionable_message(self):
         script(self.bin / "uname", 'case "$1" in -s) echo Linux;; -m) echo x86_64;; esac')
-        script(self.bin / "wt", "echo 'wt 9.9.9'")
-        self.assertIn("Expected Worktrunk 0.82.0", self.host("preflight", ok=False).stderr)
-        (self.bin / "wt").unlink()
-        self.use_wt()
+        missing = self.root / "missing adapter"
+        self.assertIn("adapter is not an executable file", self.host("preflight", str(missing), ok=False).stderr)
         script(self.bin / "devvm", "echo 0.2.0")
         self.assertIn("Expected DevVM 0.1.0", self.host("preflight", ok=False).stderr)
 
@@ -146,7 +146,6 @@ fi''')
         self.assertIn("Enter a valid Git branch name", result.stderr)
 
     def test_worktree_identities_reuse_and_dirty_detection(self):
-        self.use_wt()
         repo1, repo2 = self.root / "one/project", self.root / "two/project"
         for repo in (repo1, repo2):
             repo.mkdir(parents=True)
@@ -162,6 +161,49 @@ fi''')
         self.assertEqual(self.host("worktree", "topic/one", legacy, cwd=repo1).stdout.splitlines(), [prior[0], "dirty"])
         self.run_cmd("git", "worktree", "add", "-b", "legacy", legacy, cwd=repo1)
         self.assertEqual(self.host("worktree", "legacy", legacy, cwd=repo1).stdout.splitlines(), [legacy, "clean"])
+
+
+    def test_new_branch_starts_at_detached_head_and_existing_branch_is_checked_out(self):
+        repo = self.repo()
+        self.run_cmd("git", "switch", "--detach", cwd=repo)
+        self.run_cmd("git", "commit", "--allow-empty", "-m", "Detached", cwd=repo)
+        base = self.run_cmd("git", "rev-parse", "HEAD", cwd=repo).stdout
+        legacy = self.root / "worktrees/repo"
+        new = self.host("worktree", "new", str(legacy / "new"), cwd=repo).stdout.splitlines()[0]
+        self.assertEqual(self.run_cmd("git", "rev-parse", "HEAD", cwd=new).stdout, base)
+        self.run_cmd("git", "branch", "existing", "main", cwd=repo)
+        existing = self.host("worktree", "existing", str(legacy / "existing"), cwd=repo).stdout.splitlines()[0]
+        self.assertEqual(self.run_cmd("git", "symbolic-ref", "HEAD", cwd=existing).stdout, "refs/heads/existing\n")
+        self.assertNotEqual(self.run_cmd("git", "rev-parse", "HEAD", cwd=existing).stdout, base)
+
+    def test_windows_path_rejected_before_creating_worktree(self):
+        repo = self.repo()
+        result = self.host("worktree", "topic", "C:/worktrees/repo/topic", cwd=repo, ok=False)
+        self.assertIn("absolute path on the Linux source host", result.stderr)
+        self.assertFalse((repo / "C:").exists())
+        self.run_cmd("git", "show-ref", "--verify", "refs/heads/topic", cwd=repo, ok=False)
+
+    def test_custom_adapter_receives_create_and_existing_arguments(self):
+        repo = self.repo()
+        legacy = self.root / "worktrees with spaces/repo"
+        adapter = self.bin / "my adapter"
+        script(adapter, '''set -eu
+printf '<%s>\\n' "$@" >&2
+case "$1" in
+    create) [ "$#" -eq 4 ]; git worktree add -b "$3" -- "$2" "$4" ;;
+    existing) [ "$#" -eq 3 ]; git worktree add -- "$2" "$3" ;;
+    *) exit 2 ;;
+esac''')
+        base = self.run_cmd("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
+        self.run_cmd("git", "branch", "existing", cwd=repo)
+        for action, branch in (("create", "new"), ("existing", "existing")):
+            args = ("worktree", branch, str(legacy / branch), str(adapter))
+            result = self.host(*args, cwd=repo)
+            folder, status = result.stdout.splitlines()
+            self.assertEqual(status, "clean")
+            expected = [action, folder, branch] + ([base] if action == "create" else [])
+            self.assertEqual(result.stderr.splitlines()[:len(expected)], [f"<{arg}>" for arg in expected])
+            self.assertEqual(self.host(*args, cwd=repo).stderr, "")
 
 
 class Bridge(Fixture):

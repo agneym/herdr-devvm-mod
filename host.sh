@@ -3,10 +3,12 @@
 set -eu
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 fail() { printf '%s\n' "$*" >&2; exit 1; }
-check_worktrunk() {
-    command -v wt >/dev/null || fail 'Install Worktrunk 0.82.0 (wt) on the source host. Check its non-interactive PATH.'
-    version=$(wt --version) || fail 'Could not run wt --version on the source host.'
-    [ "$version" = 'wt 0.82.0' ] || fail "Expected Worktrunk 0.82.0 on the source host; found $version."
+check_adapter() {
+    case "$1" in
+        '') ;;
+        /*) [ -f "$1" ] && [ -x "$1" ] || fail "Worktree adapter is not an executable file: $1" ;;
+        *) fail 'worktrees.devvmAdapter must be an absolute executable path on the Linux source host.' ;;
+    esac
 }
 check_devvm() {
     command -v devvm >/dev/null || fail 'Install DevVM 0.1.0 on the source host. See First-time setup in README.md.'
@@ -42,7 +44,7 @@ case "$mode" in
             *) fail 'Use an x86_64 or arm64 Linux source host.' ;;
         esac
         command -v git >/dev/null || fail 'Install Git on the source host.'
-        check_worktrunk
+        check_adapter "${1-}"
         check_devvm
         for tool in ssh ssh-keygen limactl qemu-img "$qemu"; do
             command -v "$tool" >/dev/null || fail "Missing $tool on the source host. Install it or fix the non-interactive PATH, then run devvm doctor on the host."
@@ -54,12 +56,17 @@ case "$mode" in
     worktree)
         branch=$1
         legacy=$2
+        adapter=${3-}
+        case "$legacy" in
+            /*) ;;
+            *) fail 'worktrees.directory must resolve to an absolute path on the Linux source host.' ;;
+        esac
+        check_adapter "$adapter"
         command -v git >/dev/null || fail 'Install Git on the source host and check Herdr Core’s PATH.'
         # Exit 64 lets the dialog show a fixed validation message, not raw output.
         case "$branch" in -*|@) printf '%s\n' 'Enter a Git branch name.' >&2; exit 64 ;; esac
         git check-ref-format "refs/heads/$branch" || { printf '%s\n' 'Enter a valid Git branch name.' >&2; exit 64; }
-        check_worktrunk
-        git rev-parse --verify --quiet HEAD >/dev/null || fail 'Make an initial Git commit in the source repository first.'
+        base=$(git rev-parse --verify --quiet 'HEAD^{commit}') || fail 'Make an initial Git commit in the source repository first.'
         common=$(git rev-parse --path-format=absolute --git-common-dir)
         common=$(canonical "$common")
         repo_path=${legacy%/*}
@@ -70,11 +77,19 @@ case "$mode" in
         if matches_checkout "$legacy"; then path=$legacy; fi
         if [ ! -e "$path" ] && [ ! -L "$path" ]; then
             if git show-ref --verify --quiet "refs/heads/$branch"; then
-                wt switch --no-hooks --no-cd --path "$path" "$branch" >&2
+                if [ -n "$adapter" ]; then
+                    "$adapter" existing "$path" "$branch" >&2
+                else
+                    git worktree add -- "$path" "$branch" >&2
+                fi
             else
                 result=$?
                 [ "$result" -eq 1 ] || fail 'Could not check the branch.'
-                wt switch --no-hooks --no-cd --create --base @ --path "$path" "$branch" >&2
+                if [ -n "$adapter" ]; then
+                    "$adapter" create "$path" "$branch" "$base" >&2
+                else
+                    git worktree add -b "$branch" -- "$path" "$base" >&2
+                fi
             fi
         fi
         matches_checkout "$path" || fail "No matching linked worktree at $path. Check if the branch is already open elsewhere."

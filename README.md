@@ -11,10 +11,10 @@ This is a personal mod, not a built-in Herdr feature. Install it only if you tru
 | Herdr desktop app | **0.1.16 only**. The installer patches copies of this release's default layout and mods. Use a Linux or macOS desktop. The native checks in this package were run on Linux, not macOS. |
 | Herdr Core (`hc`) | **0.1.13** is the test baseline. The mod accepts stable **0.1.x from 0.1.13** on the desktop and source host if the required machine and layout APIs still work. Later versions are not certified by the version check. |
 | Source host and DevVM | Linux **x86_64 or arm64**, **DevVM 0.1.0 only**. The guest connection depends on this release's SSH config and host key files. No local repositories, Windows hosts or desktops, macOS source hosts, or `hc machine add --via` sources. |
-| Source tools | **Worktrunk 0.82.0** (`wt`), Git with `rev-parse --path-format` (tested with **2.43.0**), OpenSSH **8.7+**, Lima **2.0+** for DevVM 0.1.0, QEMU for the host architecture, and read/write access to `/dev/kvm`. |
+| Source tools | Git with `rev-parse --path-format` (tested with **2.43.0**), OpenSSH **8.7+**, Lima **2.0+** for DevVM 0.1.0, QEMU for the host architecture, and read/write access to `/dev/kvm`. |
 | Installer and tests | **Python 3.9+** on the desktop. The test suite also needs Git, a POSIX shell, and **Node.js 20+** for dialog tests. |
 
-Sources: [Herdr App v0.1.16 mods](https://github.com/herdrdev/herdr-app/blob/v0.1.16/docs/mods.md), [Core v0.1.13 machines](https://github.com/herdrdev/herdr-core/blob/v0.1.13/docs/machines.md), [DevVM v0.1.0 Lima requirements](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/backends/lima.md), [DevVM v0.1.0 SSH](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/using/ssh.md), and [Worktrunk v0.82.0](https://github.com/max-sixty/worktrunk/releases/tag/v0.82.0).
+Sources: [Herdr App v0.1.16 mods](https://github.com/herdrdev/herdr-app/blob/v0.1.16/docs/mods.md), [Core v0.1.13 machines](https://github.com/herdrdev/herdr-core/blob/v0.1.13/docs/machines.md), [DevVM v0.1.0 Lima requirements](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/backends/lima.md), [DevVM v0.1.0 SSH](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/using/ssh.md).
 
 ## First-time setup
 
@@ -22,7 +22,7 @@ Sources: [Herdr App v0.1.16 mods](https://github.com/herdrdev/herdr-app/blob/v0.
 
 Use an SSH account that owns the repo and can run VMs without `sudo`. Install and enable an SSH server, Git, and the OpenSSH client (`ssh` and `ssh-keygen`). If the host is itself a VM, enable nested virtualization. DevVM recommends 8 GiB of RAM, 4 CPUs, and at least 8 GiB of free disk space for the first VM. A first build also needs network access for images and packages.
 
-Install [Worktrunk 0.82.0](https://github.com/max-sixty/worktrunk/releases/tag/v0.82.0) from its release and put `wt` on the SSH user's path. You do not need its shell integration. Install [DevVM 0.1.0](https://github.com/devvmhq/devvm/releases/tag/v0.1.0) yourself. For example, on the host, in a new download directory:
+The mod uses `git worktree add` by default. Install [DevVM 0.1.0](https://github.com/devvmhq/devvm/releases/tag/v0.1.0) yourself. For example, on the host, in a new download directory:
 
 ```sh
 base=https://github.com/devvmhq/devvm/releases/download/v0.1.0
@@ -43,7 +43,6 @@ Check the host tools as the same SSH user. The mod adds `~/.local/bin` and `~/.l
 ```sh
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 git --version
-wt --version
 ssh -V
 limactl --version
 qemu-img --version
@@ -91,9 +90,30 @@ Use `--app /path/to/herdr-app` if the app CLI is not on your path. `--check` rea
 | Failure | Next step |
 | --- | --- |
 | SSH host setup check | Run `ssh -o BatchMode=yes -- devbox true` from the desktop and `devvm doctor` on the host. Check that Herdr and SSH use the same account and that remote shell startup does not print to stdout. |
-| Worktree setup | Check the branch name, current repo, and the worktree root in `settings.json` (`worktrees.directory`). It defaults to `~/.herdr/worktrees` on the host. Use a writable path. Do not remove a checkout before saving its changes. |
+| Worktree setup | Check the branch name, current repo, and the worktree root in `settings.json` (`worktrees.directory`). It defaults to `~/.herdr/worktrees` on the host. Use a writable Linux absolute path or a path starting with `~/`, not a Windows drive path. Do not remove a checkout before saving its changes. |
 | DevVM build or start | Check `devvm ls` and the log named in the copied details. The app waits up to 10 minutes for boot. If more time or input is needed, use `devvm --clone` interactively from the exact host worktree, then exit the guest shell and retry. If DevVM reports an unfinished or non-clone VM, inspect it and save any work before accepting a destructive operation. |
 | Guest registration or layout | Check **Settings → Machines** and `herdr-app status`. If the SSH pin is missing or no longer matches, inspect the guest from the source host. Use `devvm host --here` from its worktree to start a stopped VM. Do not disable host key verification to make registration work. |
+
+## Optional: use a different worktree tool
+
+Set `worktrees.devvmAdapter` in the desktop app's `settings.json` to the absolute path of a **trusted executable on the Linux source host**. Omit the setting to use Git. The mod invokes the executable directly from the source checkout, with separate arguments (not a shell command string):
+
+- `create <path> <branch> <base-commit>`: create the named branch from the supplied commit and check it out in a linked worktree at `path`.
+- `existing <path> <branch>`: check out an existing local branch in a linked worktree at `path` without resetting the branch or forcing a second checkout.
+
+Return nonzero on failure. The mod verifies the resulting checkout's branch and repository and skips the adapter if a matching worktree already exists. **Check setup** and `install.py --check --source` check that the file is executable without running it.
+
+For example, set `"devvmAdapter": "/home/you/.local/bin/devvm-worktrunk"` within `worktrees` and install this executable script on the source host (example for [Worktrunk 0.82.0](https://github.com/max-sixty/worktrunk/releases/tag/v0.82.0)):
+
+```sh
+#!/bin/sh
+set -eu
+case "$1" in
+    create) exec wt switch --no-hooks --no-cd --create --base "$4" --path "$2" "$3" ;;
+    existing) exec wt switch --no-hooks --no-cd --path "$2" "$3" ;;
+    *) exit 2 ;;
+esac
+```
 
 ## Data, connections, and cleanup
 
@@ -113,7 +133,7 @@ node --test tests/dialog.test.mjs
 sh -n host.sh && sh -n bridge.sh
 ```
 
-The tests use disposable Git repos and stub network and application calls. They cover install refusal, retry, dirty worktrees, host/repo/branch identity, and fail-closed guest SSH arguments. To repeat the Git worktree tests with real Worktrunk 0.82.0, set `DEVVM_TEST_WT="$(command -v wt)"` for the Python command.
+The tests use disposable Git repos and stub network and application calls. They cover install refusal, retry, detached HEAD, custom adapters, Linux worktree paths, dirty worktrees, host/repo/branch identity, and fail-closed guest SSH arguments.
 
 For a native render check, get the official Herdr App 0.1.16 executable and a Git checkout with tag `v0.1.16`. Run `sh tests/check-herdr.sh /path/to/app-checkout /path/to/herdr-app /path/to/hc`. This installs into a temporary home and uses the real app checker for the three copied mods and the busy and error dialog renders. On Linux with no system fonts, set `DEVVM_TEST_FONT_DIR` to a directory of fallback fonts. This is not a live SSH, VM, or keyboard test. For a full smoke test, use a disposable desktop Core session and source repo. Create a guest space, check that a new tab runs in the guest, then repeat the same branch and verify that it selects the same space.
 
