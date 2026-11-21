@@ -1,13 +1,28 @@
 #!/bin/sh
-# Invoked on the source Linux machine. Output on stdout is for the mod.
+# Invoked on the source host (local or SSH). Stdout is for the mod.
 set -eu
-export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+platform=$(uname -s)
+# GUI apps and non-interactive SSH on macOS may not inherit Homebrew's PATH.
+if [ "$platform" = Darwin ]; then PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; fi
+export PATH
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 check_adapter() {
     case "$1" in
         '') ;;
         /*) [ -f "$1" ] && [ -x "$1" ] || fail "Worktree adapter is not an executable file: $1" ;;
-        *) fail 'worktrees.devvmAdapter must be an absolute executable path on the Linux source host.' ;;
+        *) fail 'worktrees.devvmAdapter must be an absolute executable path on the source host.' ;;
+    esac
+}
+check_platform() {
+    case "$platform:$(uname -m)" in
+        Linux:x86_64) qemu=qemu-system-x86_64 ;;
+        Linux:aarch64) qemu=qemu-system-aarch64 ;;
+        Darwin:arm64|Darwin:x86_64)
+            release=$(sw_vers -productVersion) || fail 'Could not determine the macOS version.'
+            [ "${release%%.*}" -ge 13 ] || fail 'DevVM requires macOS 13 or newer.'
+            ;;
+        *) fail 'Use a macOS or Linux source host on arm64 or x86_64.' ;;
     esac
 }
 check_devvm() {
@@ -36,21 +51,24 @@ matches_checkout() {
 mode=$1
 shift
 case "$mode" in
+    probe)
+        check_platform
+        check_devvm
+        ;;
     preflight)
-        [ "$(uname -s)" = Linux ] || fail 'Use a Linux SSH source host, not the desktop or a guest.'
-        case "$(uname -m)" in
-            x86_64) qemu=qemu-system-x86_64 ;;
-            aarch64) qemu=qemu-system-aarch64 ;;
-            *) fail 'Use an x86_64 or arm64 Linux source host.' ;;
-        esac
+        check_platform
         command -v git >/dev/null || fail 'Install Git on the source host.'
         check_adapter "${1-}"
         check_devvm
-        for tool in ssh ssh-keygen limactl qemu-img "$qemu"; do
-            command -v "$tool" >/dev/null || fail "Missing $tool on the source host. Install it or fix the non-interactive PATH, then run devvm doctor on the host."
+        set -- ssh ssh-keygen limactl
+        if [ "$platform" = Linux ]; then set -- "$@" qemu-img "$qemu"; fi
+        for tool do
+            command -v "$tool" >/dev/null || fail "Missing $tool on the source host. Install it or fix the application's or SSH session's PATH, then run devvm doctor on the host."
         done
-        [ -c /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ] ||
-            fail 'The SSH user needs read/write access to /dev/kvm. Enable (nested) virtualization and check KVM group membership. Log in again after changes, then run devvm doctor on the host.'
+        if [ "$platform" = Linux ]; then
+            [ -c /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ] ||
+                fail 'The source user needs read/write access to /dev/kvm. Enable (nested) virtualization and check KVM group membership. Log in again after changes, then run devvm doctor on the host.'
+        fi
         ssh_config
         ;;
     worktree)
@@ -59,7 +77,7 @@ case "$mode" in
         adapter=${3-}
         case "$legacy" in
             /*) ;;
-            *) fail 'worktrees.directory must resolve to an absolute path on the Linux source host.' ;;
+            *) fail 'worktrees.directory must resolve to an absolute path on the source host.' ;;
         esac
         check_adapter "$adapter"
         command -v git >/dev/null || fail 'Install Git on the source host and check Herdr Core’s PATH.'

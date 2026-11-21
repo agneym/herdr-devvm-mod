@@ -18,7 +18,7 @@ globalThis.herdrFixture = {
     fx.actions.push({ name, args });
     if (name === "space.new" && fx.openSpace) fx.spaces.push({ ...args, id: "vm/space" });
   },
-  spaces: () => fx.spaces, theme: () => ({}), window: () => ({ platform: "linux" }),
+  spaces: () => fx.spaces, theme: () => ({}), window: () => ({ platform: fx.platform ?? "linux" }),
 };
 const element = () => {
   const node = { children: [], actions: {} };
@@ -56,24 +56,34 @@ function fixture() {
     async exec(cmd, args, options) {
       if (cmd === "hc" && args[0] === "--version") return ok("hc 0.1.21\n");
       if (cmd === "hc" && args[1] === "ls") return ok({ machines: [this.source, ...this.guests] });
-      if (cmd === "ssh" && args.at(-1).includes(" 'preflight' ")) {
+      if (cmd === "ssh") assert.ok(!this.local, "A local checkout must not SSH to a source host");
+      if ((cmd === "ssh" && args.at(-1).includes(" 'preflight' ")) || (cmd === "sh" && args[3] === "preflight")) {
         this.ops.push("preflight");
-        assert.equal(args.at(-2), this.source.target);
-        assert.ok(args.includes("BatchMode=yes"));
-        assert.ok(args.at(-1).endsWith(`'preflight' '${this.adapter ?? ""}'`));
+        if (this.local) {
+          assert.equal(cmd, "sh");
+          assert.equal(args[4], this.adapter ?? "");
+          assert.equal(options.on, undefined);
+        } else {
+          assert.equal(cmd, "ssh");
+          assert.equal(args.at(-2), this.source.target);
+          assert.ok(args.includes("BatchMode=yes"));
+          assert.ok(args.at(-1).endsWith(`'preflight' '${this.adapter ?? ""}'`));
+        }
         if (this.badSSH) throw new Error("Permission denied (publickey).");
         return ok("/source data/devvm/ssh_config\n");
       }
       if (cmd === "sh" && args[3] === "worktree") {
         this.ops.push("worktree");
-        assert.equal(options.on, "source");
+        assert.equal(options.on, this.local ? undefined : "source");
         assert.equal(args[6], this.adapter ?? "");
         if (args[4] === "bad branch") return { ...bad("raw validation output from host"), code: 64 };
         assert.equal(args[4], "topic/one");
         return ok(`${folder}\ndirty\n`);
       }
-      if (cmd === "ssh" && args.at(-1).endsWith(`'boot' '${folder}'`)) {
+      if ((cmd === "ssh" && args.at(-1).endsWith(`'boot' '${folder}'`)) || (cmd === "sh" && args[3] === "boot")) {
         this.ops.push("boot");
+        assert.equal(cmd, this.local ? "sh" : "ssh");
+        if (this.local) assert.equal(args[4], folder);
         if (this.bootError) return bad("\u001b[31mImage download failed\u001b[0m\nSee /source/devvm/build.log");
         return ok({ vms: [{ name: vm, folder: this.wrongFolder ?? folder, status: "Running", git: "clone" }] });
       }
@@ -83,7 +93,7 @@ function fixture() {
         assert.ok(!args.includes("--temp"));
         const name = args[args.indexOf("--name") + 1];
         const target = args[args.indexOf("--via") + 1];
-        assert.ok(target.includes(`'/app with spaces/mods/devvm-worktree/bridge.sh' '${this.source.target}' '/source data/devvm/ssh_config'`));
+        assert.ok(target.includes(`'/app with spaces/mods/devvm-worktree/bridge.sh' '${this.local ? "" : this.source.target}' '/source data/devvm/ssh_config'`));
         if (this.badPin) return bad("DevVM SSH: No pinned host key");
         const guest = { name, target, via: true, temporary: false };
         this.guests.push(guest);
@@ -98,7 +108,7 @@ function fixture() {
     write_to_clipboard: (text) => { fx.clipboard = text; },
   };
   const open = () => new DevVMDialog(cx, {
-    on: () => "source", load: async () => {
+    on: () => fx.local ? undefined : "source", load: async () => {
       if (fx.loadError) throw new Error("source session offline");
       return { cwd: "/source/project", path: () => "/worktrees/project/topic-one" };
     }, close: () => { fx.closed = (fx.closed ?? 0) + 1; },
@@ -251,6 +261,20 @@ test("layout timeout keeps registration; retry waits for the same guest", async 
   await settled();
   assert.equal(fx.ops.filter((op) => op === "add").length, 1);
   assert.equal(fx.actions[0].name, "space.new");
+});
+
+test("local macOS checkout skips source SSH and reuses its pinned guest registration", async () => {
+  const { click, start, settled } = fixture();
+  fx.platform = "macos";
+  fx.local = true;
+  click(await start(), "create");
+  await settled();
+  assert.deepEqual(fx.ops, ["preflight", "worktree", "boot", "add"]);
+  assert.equal(fx.guests[0].name, "vm-local-0123456789abcd");
+  click(await start(), "create");
+  await settled();
+  assert.equal(fx.guests.length, 1);
+  assert.deepEqual(fx.actions.map(({ name }) => name), ["space.new", "space.select"]);
 });
 
 test("different hosts with the same VM name and folder get distinct registrations", async () => {

@@ -47,8 +47,11 @@ class Installer(Fixture):
         (self.app_home / "layouts/personal.json").write_text('{"untouched":true}')
         entries = {
             "spaces": 'mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space"',
-            "menu": ('spaces, panes, exec } from "herdr";\n        ...(git === "linked" ? [["Remove worktree"\n'
-                     '    else run(it[1], it[2]);'),
+            "menu": ('spaces, panes, exec } from "herdr";\nfunction items(p, git) {\n'
+                     '        ...(git === "linked" ? [["Remove worktree"\n'
+                     '        cx.notify();\n      });\n'
+                     '    const it = items(props(), this.git)[i];\n'
+                     '    else run(it[1], it[2]);\n    const list = items(props(), this.git);'),
             "worktree": ('import { View, div } from "gpui-kit";\n    this.on = this.space()?.machine;\n  render(cx) {'),
         }
         for name, entry in entries.items():
@@ -76,6 +79,8 @@ class Installer(Fixture):
         menu = installed[Path("mods/devvm-menu/main.js")]
         self.assertIn(b"modal: true", menu)
         self.assertIn(b"New DevVM Space", menu)
+        self.assertIn(b"...(git && devvm", menu)
+        self.assertIn(b'"probe"], { on: space.machine', menu)
         for name in ("bridge.sh", "host.sh", "devvm.js", "dialog.js"):
             self.assertEqual(installed[Path("mods/devvm-worktree") / name], (PACKAGE / name).read_bytes())
         self.assertIn("Not overwriting", self.installer(ok=False).stderr)
@@ -122,6 +127,20 @@ esac''')
         self.assertIn("must be an absolute executable path", self.installer("--check", "--source", "build-box", ok=False).stderr)
 
 
+    def test_local_check_bypasses_ssh(self):
+        fake_mac(self.bin)
+        script(self.bin / "ssh", 'echo "Unexpected SSH invocation" >&2; exit 2')
+        self.assertIn("Local host: basic checks passed", self.installer("--check", "--local").stdout)
+        self.assertIn("not allowed", self.installer("--check", "--local", "--source", "host", ok=False).stderr)
+
+
+def fake_mac(bin_dir, version="13.5"):
+    script(bin_dir / "uname", 'case "$1" in -s) echo Darwin;; -m) echo arm64;; esac')
+    script(bin_dir / "sw_vers", f"echo {version}")
+    script(bin_dir / "devvm", 'test "$1" = --version && echo 0.1.0')
+    script(bin_dir / "limactl", 'exit 2')
+
+
 class Host(Fixture):
     def host(self, *args, cwd=None, ok=True):
         return self.run_cmd("sh", str(PACKAGE / "host.sh"), *args, cwd=cwd, ok=ok)
@@ -139,6 +158,20 @@ class Host(Fixture):
         self.assertIn("adapter is not an executable file", self.host("preflight", str(missing), ok=False).stderr)
         script(self.bin / "devvm", "echo 0.2.0")
         self.assertIn("Expected DevVM 0.1.0", self.host("preflight", ok=False).stderr)
+
+    def test_macos_preflight_only_requires_common_tools(self):
+        fake_mac(self.bin)
+        self.assertEqual(self.host("probe").stdout, "")
+        self.assertEqual(self.host("preflight").stdout, f"{self.home}/.local/share/devvm/ssh_config\n")
+        fake_mac(self.bin, "12.7")
+        self.assertIn("requires macOS 13 or newer", self.host("probe", ok=False).stderr)
+
+    def test_probe_refuses_missing_or_unsupported_devvm(self):
+        fake_mac(self.bin)
+        (self.bin / "devvm").unlink()
+        self.assertIn("Install DevVM 0.1.0", self.host("probe", ok=False).stderr)
+        script(self.bin / "devvm", "echo 0.2.0")
+        self.assertIn("Expected DevVM 0.1.0", self.host("probe", ok=False).stderr)
 
     def test_invalid_branch_fails_before_worktree_setup(self):
         result = self.host("worktree", "bad branch", "/unused", ok=False)
@@ -179,7 +212,7 @@ class Host(Fixture):
     def test_windows_path_rejected_before_creating_worktree(self):
         repo = self.repo()
         result = self.host("worktree", "topic", "C:/worktrees/repo/topic", cwd=repo, ok=False)
-        self.assertIn("absolute path on the Linux source host", result.stderr)
+        self.assertIn("absolute path on the source host", result.stderr)
         self.assertFalse((repo / "C:").exists())
         self.run_cmd("git", "show-ref", "--verify", "refs/heads/topic", cwd=repo, ok=False)
 
@@ -214,7 +247,7 @@ if [ "$1" = -G ]; then
 elif [ "$2" = -F ]; then
     printf '%s\\n' "$@"
 else
-    [ "$7" = source ]; exec sh -c "$8"
+    [ "${ONLY_LOCAL:-no}" = no ] && [ "$7" = source ]; exec sh -c "$8"
 fi'''
         script(self.bin / "ssh", ssh)
         script(self.bin / "ssh-keygen", '[ "$*" = "-F $VM -f $PIN" ] && [ "$HAS_PIN" = yes ]')
@@ -228,11 +261,16 @@ fi'''
         self.env.update(HAS_PIN="yes", VM_HOST="192.0.2.1")
         self.assertIn("No pinned loopback SSH entry", self.run_cmd(*args, ok=False).stderr)
         self.env.update(VM_HOST="127.0.0.1")
-        result = self.run_cmd(*args).stdout.splitlines()
-        for option in ("StrictHostKeyChecking=yes", "HostName=127.0.0.1", f"HostKeyAlias={vm}",
-                       f'UserKnownHostsFile="{pin}"', "GlobalKnownHostsFile=none", "ForwardAgent=no"):
-            self.assertIn(option, result)
-        self.assertEqual(result[-2:], [vm, command])
+        for target in ("source", ""):
+            with self.subTest(target=target):
+                self.env["ONLY_LOCAL"] = "no" if target else "yes"
+                result = self.run_cmd(*args[:2], target, *args[3:]).stdout.splitlines()
+                for option in ("StrictHostKeyChecking=yes", "HostName=127.0.0.1", f"HostKeyAlias={vm}",
+                               f'UserKnownHostsFile="{pin}"', "GlobalKnownHostsFile=none", "ForwardAgent=no"):
+                    self.assertIn(option, result)
+                self.assertEqual(result[-2:], [vm, command])
+        self.env["HAS_PIN"] = "no"
+        self.assertIn("No pinned host key", self.run_cmd(*args[:2], "", *args[3:], ok=False).stderr)
 
 
 if __name__ == "__main__":

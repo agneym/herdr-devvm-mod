@@ -41,10 +41,24 @@ def patch_spaces(text):
 
 
 def patch_menu(text):
-    text = replace(text, 'spaces, panes, exec } from "herdr";', 'spaces, panes, exec, window } from "herdr";')
+    text = replace(text, 'spaces, panes, exec } from "herdr";', 'spaces, panes, exec, appHome, checking, readTextFile, window } from "herdr";')
+    text = replace(text, 'function items(p, git) {', 'function items(p, git, devvm) {')
+    text = replace(text, 'const it = items(props(), this.git)[i];', 'const it = items(props(), this.git, this.devvm)[i];')
+    text = replace(text, 'const list = items(props(), this.git);', 'const list = items(props(), this.git, this.devvm);')
+    text = replace(text, '        cx.notify();\n      });', '''        cx.notify();
+        if (!this.git || checking() || !["linux", "macos"].includes(window()?.platform)) return;
+        try {
+          const script = await readTextFile(`${appHome()}/mods/devvm-worktree/host.sh`);
+          if (script) {
+            const result = await exec("sh", ["-c", script, "herdr-devvm", "probe"], { on: space.machine, timeout: 5_000 });
+            this.devvm = result.code === 0;
+          }
+        } catch {} // No supported DevVM on this checkout's host.
+        if (this.devvm) cx.notify();
+      });''')
     marker = '        ...(git === "linked" ? [["Remove worktree"'
     return replace(
-        replace(text, marker, '''        ...(git && window()?.platform !== "windows" && spaces().find((s) => s.id === tg.id)?.machine
+        replace(text, marker, '''        ...(git && devvm
           ? [["New DevVM Space…", "devvm-worktree", { space: tg.id, action: "devvm" }]] : []),
 ''' + marker),
         '    else run(it[1], it[2]);',
@@ -63,7 +77,6 @@ def patch_worktree(text):
         on: () => this.on,
         close: () => this.close(),
         load: async () => {
-          if (!this.on) throw new Error("Open this dialog from a Linux SSH space.");
           const result = await exec("sh", ["-c", 'printf %s "$HOME"'], { on: this.on });
           const userHome = result.stdout.trim();
           if (result.code !== 0 || !userHome.startsWith("/")) throw new Error(result.stderr || "Could not read the source host home folder.");
@@ -72,7 +85,7 @@ def patch_worktree(text):
           const repo = await repoOf(folder, this.on);
           if (!repo) throw new Error(`Could not read a Git checkout at ${folder}. Check Git and the terminal folder.`);
           const directory = await root(userHome);
-          if (directory && !directory.startsWith("/")) throw new Error("worktrees.directory must be a Linux absolute path or start with ~/.");
+          if (directory && !directory.startsWith("/")) throw new Error("worktrees.directory must be an absolute path on the source host or start with ~/.");
           return { cwd: repo.top, path: (branch) => `${directory}/${repo.name}/${slug(branch)}` };
         },
       });
@@ -149,28 +162,33 @@ def source_adapter(home):
         return ""
     path = worktrees["devvmAdapter"]
     if not isinstance(path, str) or not path.startswith("/") or re.search(r"[\x00-\x1f\x7f]", path):
-        raise ValueError("worktrees.devvmAdapter must be an absolute executable path on the Linux source host.")
+        raise ValueError("worktrees.devvmAdapter must be an absolute executable path on the source host.")
     return path
 
 
 def check_source(target, adapter):
-    if not target or target.startswith("-") or re.search(r"[\s\x00-\x1f\x7f]", target):
-        raise ValueError("Pass one SSH alias or user@host with --source. Put any options in SSH config.")
     script = (BUNDLE / "host.sh").read_text(encoding="utf-8")
-    remote = shlex.join(["sh", "-c", script, "herdr-devvm", "preflight", adapter])
+    command = ["sh", "-c", script, "herdr-devvm", "preflight", adapter]
+    label = "Local host"
+    advice = "Run devvm doctor on this computer."
+    if target is not None:
+        if not target or target.startswith("-") or re.search(r"[\s\x00-\x1f\x7f]", target):
+            raise ValueError("Pass one SSH alias or user@host with --source. Put any options in SSH config.")
+        command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target, shlex.join(command)]
+        label = f"Source {target}"
+        advice = "Verify that ssh -o BatchMode=yes TARGET true works from this desktop."
     try:
-        result = subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target, remote],
-                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise ValueError("Could not run the SSH host check. Verify that ssh -o BatchMode=yes TARGET true works from this desktop.") from error
+        raise ValueError(f"Could not run the host check. {advice}") from error
     if result.stderr:
         print(result.stderr.rstrip(), file=sys.stderr)
     if result.returncode != 0:
-        raise ValueError("Source host check failed. Fix the SSH or dependency error above. See First-time setup in README.md.")
+        raise ValueError(f"{label}: host check failed. Fix the error above. See First-time setup in README.md.")
     config = result.stdout.removesuffix("\n")
     if not config.startswith("/") or re.search(r"[\x00-\x1f\x7f]", config):
         raise ValueError("Invalid DevVM SSH config path. Check XDG_DATA_HOME and remove extra stdout from SSH shell startup.")
-    print(f"Source {target}: basic checks passed (DevVM SSH config: {config}). Run devvm doctor on the host for a full backend check.")
+    print(f"{label}: basic checks passed (DevVM SSH config: {config}). Run devvm doctor on the host for a full backend check.")
 
 
 def main():
@@ -180,10 +198,12 @@ def main():
     parser.add_argument("--app", default="herdr-app", help="Path to the desktop app CLI")
     parser.add_argument("--check", action="store_true", help="Check setup without installing the mod")
     parser.add_argument("--core", default="hc", help="Core CLI to check with --check (does not contact the daemon)")
-    parser.add_argument("--source", help="Also check this SSH target with --check")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--source", help="Also check this SSH target with --check")
+    source.add_argument("--local", action="store_true", help="Also check local DevVM dependencies with --check")
     args = parser.parse_args()
-    if args.source is not None and not args.check:
-        parser.error("--source requires --check")
+    if (args.source is not None or args.local) and not args.check:
+        parser.error("--source and --local require --check")
     try:
         if sys.platform not in ("linux", "darwin"):
             raise ValueError("Use a Linux or macOS desktop.")
@@ -205,7 +225,7 @@ def main():
             if not match or int(match[1]) < 13:
                 raise ValueError(f"Expected hc 0.1.x (0.1.13 or newer); found {core!r}. Pass --core with the path to the app's Core CLI.")
             print(f"Desktop: {VERSION}, {core}, and shipped layout/mods checked at {home}.")
-            if args.source is not None:
+            if args.source is not None or args.local:
                 check_source(args.source, source_adapter(home))
             print("Check complete. No mod files installed and no VM started.")
         else:

@@ -28,5 +28,9 @@ exec ssh -T -F "$config" -p "$port" -o BatchMode=yes -o ConnectTimeout=10 \
     -o ControlPath=none -o ProxyCommand=none -o ProxyJump=none \
     -o ClearAllForwardings=yes -o ForwardAgent=no -- "$vm" "$command"
 '
+# An empty source target means the guest port is on this desktop's loopback.
+if [ -z "$1" ]; then
+    exec sh -c "$inner" herdr-devvm "$2" "$3" "$4"
+fi
 exec ssh -T -o BatchMode=yes -o ConnectTimeout=10 -- "$1" \
     "exec sh -c $(quote "$inner") herdr-devvm $(quote "$2") $(quote "$3") $(quote "$4")"
