@@ -1,111 +1,75 @@
 # DevVM spaces for Herdr
 
-**New DevVM Space…** makes a Git worktree on your computer or on a macOS or Linux SSH host. DevVM gives the guest its own Git clone. Herdr opens a space in that guest, so new tabs and splits in the space also run there.
+Right-click a Git space and choose **New DevVM Space…** to open a branch in a DevVM guest. The mod creates a Git worktree on the source host, DevVM clones its committed files into the guest, and Herdr opens a space there. New tabs and splits in that space run in the guest too.
 
-This is a personal mod, not a built-in Herdr feature. Install it only if you trust the code. The mod can run commands as your desktop user and, for remote checkouts, your SSH user.
+The source checkout can be local or on a macOS or Linux machine connected to Herdr over SSH. This is a personal mod, not a built-in Herdr feature. Install it only if you trust it to run commands as your desktop and source users.
 
-## Compatibility
+## Prerequisites
 
-| Component | Supported or required version |
-| --- | --- |
-| Herdr desktop app | **0.1.16 only**. The installer patches copies of this release's default layout and mods. Use a Linux or macOS desktop. The native checks in this package were run on Linux, not macOS. |
-| Herdr Core (`hc`) | **0.1.13** is the test baseline. The mod accepts stable **0.1.x from 0.1.13** on the desktop and source host if the required machine and layout APIs still work. Later versions are not certified by the version check. |
-| Source host and DevVM | Local or SSH: Linux **x86_64 or arm64**, or **macOS 13+**. **DevVM 0.1.0 only**. Upstream tested Apple silicon, not Intel Macs; this mod has not been live-tested on macOS. No Windows hosts or desktops, or `hc machine add --via` sources. |
-| Source tools | Git with `rev-parse --path-format` (tested with **2.43.0**), OpenSSH **8.7+**, Lima **2.0+**. **Linux only:** QEMU for the host architecture and read/write access to `/dev/kvm`. macOS uses Apple's Virtualization framework instead. |
-| Installer and tests | **Python 3.9+** on the desktop. The test suite also needs Git, a POSIX shell, and **Node.js 20+** for dialog tests. |
+- **Herdr App 0.1.16** on Linux or macOS. The installer patches copies of this release’s default layout and mods.
+- **Herdr Core (`hc`) 0.1.13 or later in the stable 0.1.x series** on the desktop and any SSH source. The tested baseline is 0.1.13.
+- [**DevVM 0.1.0**](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/getting-started/install.md) already installed and working on the source host, with Git (`rev-parse --path-format`) and OpenSSH 8.7+. The mod does not install DevVM or its dependencies.
+- **Python 3.9+** on the desktop for the installer.
 
-Sources: [Herdr App v0.1.16 mods](https://github.com/herdrdev/herdr-app/blob/v0.1.16/docs/mods.md), [Core v0.1.13 machines](https://github.com/herdrdev/herdr-core/blob/v0.1.13/docs/machines.md), [DevVM v0.1.0 Lima requirements](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/backends/lima.md), [DevVM v0.1.0 SSH](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/using/ssh.md).
+Source hosts can run Linux (x86_64 or arm64) or macOS 13+. The mod has not been live-tested on macOS, and upstream DevVM has not been tested on Intel Macs. Windows and Herdr sources registered with `--via` are not supported.
 
-## First-time setup
+## Install and activate
 
-### 1. Prepare the source host
-
-Install DevVM and its dependencies on the computer that holds the source checkout. Use an account that owns the repo and can run VMs without `sudo`. Install Git and the OpenSSH client (`ssh` and `ssh-keygen`). For a remote checkout, enable an SSH server on that host (Remote Login on macOS). Local checkouts do not need an SSH server. If the Linux host is itself a VM, enable nested virtualization. DevVM recommends 8 GiB of RAM, 4 CPUs, and at least 8 GiB of free disk space for the first VM. A first build also needs network access for images and packages.
-
-The mod uses `git worktree add` by default. Install [DevVM 0.1.0](https://github.com/devvmhq/devvm/releases/tag/v0.1.0) yourself. For example, on the host, in a new download directory:
-
-```sh
-base=https://github.com/devvmhq/devvm/releases/download/v0.1.0
-curl -fsSLO "$base/install.sh" && curl -fsSLO "$base/SHA256SUMS" && curl -fsSLO "$base/SHA256SUMS.minisig"
-```
-
-With `minisign` installed, verify the downloads. Check that the trusted comment is `devvm 0.1.0` and that the checksum output includes `install.sh: OK`. If either check fails, stop.
-
-```sh
-minisign -Vm SHA256SUMS -P RWSjzFsn7ETaijKJ2y7F4DtZobXmyv+LmdclJwZP/KmAkLUwOCzWF/2b && \
-  sha256sum -c --ignore-missing SHA256SUMS
-```
-
-On macOS, after the same `minisign` check, use `grep '  install\.sh$' SHA256SUMS | shasum -a 256 -c -` instead of `sha256sum`. Again, require `install.sh: OK`.
-
-Then run `bash install.sh --version 0.1.0 --no-deps`. This installs DevVM for your user, not its dependencies. Install `limactl` using [Lima's installation guide](https://lima-vm.io/docs/installation/). On **Linux only**, install QEMU (`qemu-img` and `qemu-system-x86_64` or `qemu-system-aarch64`) and ensure your account can access `/dev/kvm`. Log out and back in after a group change. See [DevVM's tagged install guide](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/getting-started/install.md) for other install options.
-
-Check the tools as the user who will run DevVM. The mod adds `~/.local/bin` and `~/.local/share/mise/shims` to the host command's path, with standard Homebrew paths as fallbacks on macOS. If tools live elsewhere, make sure Herdr and non-interactive SSH can find them; a path set only in an interactive shell may not work.
-
-```sh
-export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-git --version
-ssh -V
-limactl --version
-devvm --version
-devvm doctor
-```
-
-Run `devvm doctor` without `--json`: the JSON form exits successfully even when it reports missing dependencies. Fix the problems it reports. If this account has never used DevVM, run `devvm setup` in an interactive host terminal to choose your user defaults. Keep the default `allowlist` network tier unless you know you need another tier. Test `devvm --clone` in a **disposable Git repo with a commit and a branch checked out**. Wait for its guest shell, then exit it. This tests the build and guest launch before you try the mod. This manual check creates a VM; it is not part of preflight. See [Your first VM](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/getting-started/first-vm.md).
-
-### 2. For remote checkouts only: add the SSH host to Herdr
-
-In a desktop terminal, replace `devbox` with your SSH config alias or `user@host`. Use the same account for Herdr and direct SSH. Verify your host fingerprint before you trust it. Use keys or an agent available to Herdr; a password, MFA prompt, or host key prompt cannot run in the dialog. Put ports and jump hosts in SSH config, not in the target string.
-
-```sh
-ssh devbox                         # Verify the host key and log in once, then exit.
-ssh -o BatchMode=yes -- devbox true
-hc machine add devbox --name devbox  # Review any prompt to install Core on the source.
-hc machine ls                       # Check that devbox is connected and has a supported Core.
-```
-
-If the machine is already in Herdr, do not add it again. Use its SSH **target** for `--source` below, which can differ from its display name.
-
-### 3. Check and install the mod on the desktop
-
-Open Herdr App 0.1.16 once to write its default files. From this package directory, run the check for your source, then install:
+Open Herdr App 0.1.16 once to create its default files. From this repo, run the check that matches your checkout:
 
 ```sh
 python3 install.py --check --local          # Local checkout
-# Or: python3 install.py --check --source devbox  # Remote checkout
+python3 install.py --check --source devbox  # SSH checkout; use its SSH target
+```
+
+For a remote checkout, the SSH target must already be registered in Herdr. See [Remote checkouts](#remote-checkouts) if needed. The check validates the CLI versions, layout, and basic host dependencies without starting a VM. Use `--check` alone to skip the host checks.
+
+Then install the mod and switch layouts:
+
+```sh
 python3 install.py
 herdr-app do layout.switch --name main-devvm
 ```
 
-Use `--app /path/to/herdr-app` if the app CLI is not on your path. `--check` reads the CLI versions and validates the default layout and patch points. Add `--core /path/to/hc` if your terminal uses a different executable than Herdr. Use `--app-home /path/to/herdr-app-home` if needed. It defaults to `$HERDR_APP_HOME`, then `${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app`. The app, installer, and `layout.switch` must use the same app home. Use `--check` alone to check the desktop app and layout without checking DevVM dependencies. Switch back to `main` before upgrading the app. Personal copies do not update with the app and are not supported after an app upgrade.
+The installer creates `layouts/main-devvm.json` and `mods/devvm-{spaces,menu,worktree}` without modifying existing files. If you use custom paths, pass `--app` for the app CLI, `--core` for the Core CLI used by `--check`, or `--app-home` for the app config directory. The installer and running app must use the same app home (`$HERDR_APP_HOME`, otherwise `${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app`).
 
-`--check --local` and `--check --source` run basic dependency checks (including KVM permissions on Linux), locally or over batch SSH respectively. Neither check runs `devvm setup` or `devvm doctor`, boots a VM, or contacts the desktop Core daemon. Fix the reported errors and run the check again. No tool is installed by preflight. Installation adds only `layouts/main-devvm.json` and `mods/devvm-{spaces,menu,worktree}`. It does not edit shipped or personal layouts, change SSH config, switch layouts for you, or update or restart your Core. It refuses to replace files from a previous installation.
+### Remote checkouts
 
-## Use and recover
+Skip this for local checkouts; no SSH server is needed. For a remote checkout, use an existing SSH alias or `user@host`, with the same account for direct SSH and Herdr. Verify the host fingerprint and make sure batch SSH works with credentials available to Herdr:
 
-1. Open a local Git space or one on a macOS or Linux SSH host. Right-click the space in the sidebar and choose **New DevVM Space…**. The option appears after Herdr detects Git and finds DevVM 0.1.0 on that checkout's host. If it is missing, check that `main-devvm` is active and run the matching installer preflight above.
-2. Use **Check setup** if you want to check the Herdr connection and the host tools without creating anything. Enter a branch name and select **Create** or press Enter. A new branch starts at the source checkout's current `HEAD`. If the branch already exists and is checked out elsewhere, use another branch or resolve that checkout yourself.
-3. Leave the dialog open while it works. It blocks clicks outside. While it has focus it uses a dialog Escape binding to ignore Escape during setup; when idle, Escape closes it. Closing the window or dismissing the overlay by another Herdr command is not a reliable cancellation. If it closes, check `devvm ls` and the host logs before retrying, especially if the VM may still be starting. Do not start concurrent setup attempts for the same checkout.
-4. On failure, read the next step in the dialog. **Copy details** copies command output and relevant host, repo, branch, worktree or guest information. Review and redact it before sharing. Fix the issue and choose **Retry**. If you closed the dialog, reopen it from the same source repo and enter the same branch. It checks the worktree's Git identity and reuses a matching VM registration or space. It does not delete work after a failure.
+```sh
+ssh -o BatchMode=yes -- devbox true
+hc machine add devbox --name devbox  # Only if it isn't already registered
+```
 
-| Failure | Next step |
+Put ports and jump hosts in SSH config. Pass the SSH **target** to `install.py --check --source`, even if the machine has a different display name in Herdr.
+
+## Create a DevVM space
+
+1. Open a Git space, then right-click it in the sidebar. **New DevVM Space…** appears when Herdr detects Git and DevVM 0.1.0 on the checkout’s host.
+2. Enter a branch name and select **Create** or press Enter. A new branch starts at the source checkout’s current `HEAD`. An existing branch must not be checked out elsewhere. **Check setup** runs the host checks without creating a worktree or VM.
+3. Leave the dialog open. First boot can take several minutes. Closing it is not a reliable way to cancel; if it closes during setup, check `devvm ls` and the host logs before retrying.
+
+Only committed files are copied. Uncommitted, untracked, and ignored files stay on the host. Guest edits do not sync back automatically, and retrying does not refresh an existing guest clone. See [Working on a clone](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/using/clone.md) for fetching guest commits.
+
+**Create** can install Core inside the guest and register it in Herdr. The connection uses DevVM’s pinned guest host key over loopback, directly for local checkouts or through the source SSH host for remote ones. The mod does not change your SSH config or expose a public guest SSH port.
+
+## Configure worktrees
+
+The mod uses `git worktree add` by default. Set `worktrees.directory` in the desktop app’s `settings.json` to change the worktree root (default: `~/.herdr/worktrees` on the source host). Use an absolute path on that host or a path starting with `~/`, not a Windows drive path.
+
+### Optional: use a different worktree tool
+
+Set `worktrees.devvmAdapter` to the absolute path of a **trusted executable on the source host**. The mod invokes it from the source checkout, passing each argument separately:
+
+| Invocation | Expected behavior |
 | --- | --- |
-| Local host setup check | Run `devvm doctor` on this computer and check Herdr's PATH. |
-| SSH host setup check | Run `ssh -o BatchMode=yes -- devbox true` from the desktop and `devvm doctor` on the host. Check that Herdr and SSH use the same account and that remote shell startup does not print to stdout. |
-| Worktree setup | Check the branch name, current repo, and the worktree root in `settings.json` (`worktrees.directory`). It defaults to `~/.herdr/worktrees` on the host. Use a writable absolute path on the source host or a path starting with `~/`, not a Windows drive path. Do not remove a checkout before saving its changes. |
-| DevVM build or start | Check `devvm ls` and the log named in the copied details. The app waits up to 10 minutes for boot. If more time or input is needed, use `devvm --clone` interactively from the exact host worktree, then exit the guest shell and retry. If DevVM reports an unfinished or non-clone VM, inspect it and save any work before accepting a destructive operation. |
-| Guest registration or layout | Check **Settings → Machines** and `herdr-app status`. If the SSH pin is missing or no longer matches, inspect the guest from the source host. Use `devvm host --here` from its worktree to start a stopped VM. Do not disable host key verification to make registration work. |
+| `adapter create <path> <branch> <base-commit>` | Create the branch at the supplied commit and check it out in a linked worktree at `<path>`. |
+| `adapter existing <path> <branch>` | Check out the existing local branch in a linked worktree at `<path>` without resetting it or forcing a second checkout. |
 
-## Optional: use a different worktree tool
+Exit `0` on success and nonzero on failure. No machine-readable output is needed. The mod verifies the resulting checkout’s branch and repository, and skips the adapter if a matching worktree already exists. Setup checks verify that the adapter is executable without running it.
 
-Set `worktrees.devvmAdapter` in the desktop app's `settings.json` to the absolute path of a **trusted executable on the source host**. Omit the setting to use Git. The mod invokes the executable directly from the source checkout, with separate arguments (not a shell command string):
-
-- `create <path> <branch> <base-commit>`: create the named branch from the supplied commit and check it out in a linked worktree at `path`.
-- `existing <path> <branch>`: check out an existing local branch in a linked worktree at `path` without resetting the branch or forcing a second checkout.
-
-Return nonzero on failure. The mod verifies the resulting checkout's branch and repository and skips the adapter if a matching worktree already exists. **Check setup** and the installer host checks verify that the file is executable without running it.
-
-For example, set `"devvmAdapter": "/home/you/.local/bin/devvm-worktrunk"` within `worktrees` and install this executable script on the source host (example for [Worktrunk 0.82.0](https://github.com/max-sixty/worktrunk/releases/tag/v0.82.0)):
+For example, point `worktrees.devvmAdapter` at an executable script like this on the source host ([Worktrunk 0.82.0](https://github.com/max-sixty/worktrunk/releases/tag/v0.82.0)):
 
 ```sh
 #!/bin/sh
@@ -117,28 +81,34 @@ case "$1" in
 esac
 ```
 
-## Data, connections, and cleanup
+## Troubleshooting
 
-- DevVM seeds the guest from Git commits, not uncommitted, untracked, or ignored files. A dirty worktree gets a warning. Retry does not refresh an existing guest clone and guest edits do not sync back automatically. See [Working on a clone](https://github.com/devvmhq/devvm/blob/v0.1.0/docs/content/docs/using/clone.md) for fetching guest commits.
-- The desktop connects directly to the guest's loopback port for local checkouts, or through the source SSH host for remote checkouts. Both require DevVM's pinned guest host key and a loopback SSH entry on the source host. The bridge does not add a public guest SSH port, add a DevVM Include to your SSH config, or copy guest keys off the source host. DevVM can forward other ports according to its own settings.
-- **Create** can install Core in the guest through `hc machine add --install`. It does not install DevVM or update the desktop/source Core. It registers a regular guest machine because Herdr App 0.1.16 does not show spaces for temporary machine registrations. Keep this app home and the SSH target stable: the connection points to this installed `bridge.sh` and the source's DevVM data path. A moved app home, renamed SSH target, or changed `XDG_DATA_HOME` can require manual re-registration after you inspect the old entry.
-- Close a space to remove it from the layout; this does not stop the VM. To clean up, save guest work first. Forget the guest machine in Herdr if you no longer need it, then run `devvm rm` interactively from its host worktree and review the prompts. Remove the Git worktree last. The mod never runs `devvm rm`.
-- To remove or reinstall the mod, switch to `main` first with `herdr-app do layout.switch --name main`. Back up the four installed paths listed above. Move those paths out of the app home, then reinstall if needed. A registered guest needs `bridge.sh` to reconnect; keep it at the same path if you still use that guest. The mod has no automatic update or uninstall.
+Fix the issue and choose **Retry**, or reopen the dialog from the same repo and enter the same branch. The mod reuses matching worktrees, guest registrations, and spaces; it does not delete work after a failure. **Copy details** includes command output and host or repo paths. Redact it before sharing.
+
+| If this happens | Try this |
+| --- | --- |
+| **New DevVM Space…** is missing | Check that `main-devvm` is active, the space is in a Git repo, and the matching installer host check passes. |
+| Host check fails | Run `devvm doctor` on the source host and check that Herdr can find the required tools. For remote sources, also verify batch SSH and make sure remote shell startup does not print to stdout. |
+| Worktree setup fails | Check the branch and `worktrees.directory`. Use a different branch if the requested one is checked out elsewhere. |
+| Boot fails or times out | Check `devvm ls` and the log from **Copy details**. The mod waits up to 10 minutes. If DevVM needs input or more time, run `devvm --clone` interactively from the exact worktree, then exit the guest shell and retry. |
+| Guest registration or layout fails | Check **Settings → Machines** and `herdr-app status`. To start a stopped guest, run `devvm host --here` from its worktree. If the guest pin is missing or mismatched, inspect the guest rather than disabling host key verification. |
+
+## Clean up or uninstall
+
+- Closing a space does not stop the VM. To remove the guest, save its work first, forget the guest machine in Herdr if you no longer need it, and run `devvm rm` interactively from its host worktree. Remove the Git worktree last.
+- To remove or reinstall the mod, switch back with `herdr-app do layout.switch --name main`, then back up and move the four installed paths listed above. Switch back to `main` before upgrading Herdr; copied layouts and mods don’t update with the app.
+- Registered guests still need the installed `bridge.sh` at the same path to reconnect. Moving the app home, changing the SSH target, or moving DevVM’s data directory can require re-registering the guest.
 
 ## Tests
 
-From this package directory:
-
 ```sh
 python3 -B -m unittest discover -s tests -v
-node --test tests/dialog.test.mjs
+node --test tests/dialog.test.mjs  # Node.js 20+
 sh -n host.sh && sh -n bridge.sh
 ```
 
-The tests use disposable Git repos and stub network and application calls. They cover install refusal, retry, detached HEAD, custom adapters, worktree paths, dirty worktrees, simulated macOS preflight, and pinned guest SSH for both local and remote checkouts.
-
-For a native render check, get the official Herdr App 0.1.16 executable and a Git checkout with tag `v0.1.16`. Run `sh tests/check-herdr.sh /path/to/app-checkout /path/to/herdr-app /path/to/hc`. This installs into a temporary home and uses the real app checker for the three copied mods and the busy and error dialog renders. On Linux with no system fonts, set `DEVVM_TEST_FONT_DIR` to a directory of fallback fonts. This is not a live SSH, VM, or keyboard test. For a full smoke test, use a disposable desktop Core session and source repo. Create a guest space, check that a new tab runs in the guest, then repeat the same branch and verify that it selects the same space.
+For native render checks, run `sh tests/check-herdr.sh /path/to/app-checkout /path/to/herdr-app /path/to/hc` with the Herdr App v0.1.16 tag and executable. On Linux without system fonts, set `DEVVM_TEST_FONT_DIR` to a fallback font directory. This does not boot a VM. For a live smoke test, use a disposable Core session and Git repo, create a guest space, open a new tab in it, then repeat the same branch and confirm that Herdr selects the existing space.
 
 ## License
 
-This mod uses the [MIT License](LICENSE). The Herdr files copied at install time remain subject to [Herdr App's upstream license](https://github.com/herdrdev/herdr-app/blob/v0.1.16/LICENSE).
+[MIT](LICENSE). Herdr files copied at install time remain subject to [Herdr App’s upstream license](https://github.com/herdrdev/herdr-app/blob/v0.1.16/LICENSE).
