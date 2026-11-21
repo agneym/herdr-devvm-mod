@@ -2,11 +2,11 @@
 
 Right-click a Git space in Herdr’s sidebar and choose **New DevVM Space** to open a branch in a DevVM guest. The source checkout stays on its host; new tabs and splits in the guest space run inside the guest.
 
-![The New DevVM Space action in Herdr’s context menu](preview.png)
+![The New DevVM Space action in Herdr’s context menu](preview.webp)
 
 ## What you see
 
-The usual space context menu gains one row, **New DevVM Space**, with a terminal icon and the standard hover highlight. This build opens the menu in a 220 × 280 popup. The blur in the preview is only a screenshot edit.
+The usual space context menu gains one row, **New DevVM Space**, with a terminal icon and the standard hover highlight. This build opens the menu in a 220 × 280 popup. The preview places that popup in a card beside the **devvm spaces for herdr** title; it is a still image, not a live capture.
 
 The row opens a 560 × 360 modal with a title, a short explanation, a 32 px branch field, and right-aligned buttons. It uses the active theme’s popover background, 13 px body text, muted help, accent progress and blocked/error colors. The sidebar and its agent status indicators are otherwise unchanged.
 
