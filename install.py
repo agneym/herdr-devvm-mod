@@ -59,7 +59,7 @@ def patch_menu(text):
     marker = '        ...(git === "linked" ? [["Remove worktree"'
     return replace(
         replace(text, marker, '''        ...(git && devvm
-          ? [["New DevVM Space…", "devvm-worktree", { space: tg.id, action: "devvm" }]] : []),
+          ? [["New DevVM Space", "devvm-worktree", { space: tg.id, action: "devvm" }]] : []),
 ''' + marker),
         '    else run(it[1], it[2]);',
         '''    else if (it[1] === "devvm-worktree") openOverlay({ mod: "devvm-worktree", kind: "dialog", modal: true, width: 560, height: 360, props: it[2] });

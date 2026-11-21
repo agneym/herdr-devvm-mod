@@ -78,7 +78,7 @@ class Installer(Fixture):
         self.assertEqual(layout["body"]["mod"], "devvm-spaces")
         menu = installed[Path("mods/devvm-menu/main.js")]
         self.assertIn(b"modal: true", menu)
-        self.assertIn(b"New DevVM Space", menu)
+        self.assertIn(b'"New DevVM Space"', menu)
         self.assertIn(b"...(git && devvm", menu)
         self.assertIn(b'"probe"], { on: space.machine', menu)
         for name in ("bridge.sh", "host.sh", "devvm.js", "dialog.js"):

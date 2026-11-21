@@ -1,6 +1,6 @@
 # DevVM spaces for Herdr
 
-Right-click a Git space and choose **New DevVM Space…** to open a branch in a DevVM guest. The mod creates a Git worktree on the source host, DevVM clones its committed files into the guest, and Herdr opens a space there. New tabs and splits in that space run in the guest too.
+Right-click a Git space and choose **New DevVM Space** to open a branch in a DevVM guest. The mod creates a Git worktree on the source host, DevVM clones its committed files into the guest, and Herdr opens a space there. New tabs and splits in that space run in the guest too.
 
 The source checkout can be local or on a macOS or Linux machine connected to Herdr over SSH. This is a personal mod, not a built-in Herdr feature. Install it only if you trust it to run commands as your desktop and source users.
 
@@ -46,7 +46,7 @@ Put ports and jump hosts in SSH config. Pass the SSH **target** to `install.py -
 
 ## Create a DevVM space
 
-1. Open a Git space, then right-click it in the sidebar. **New DevVM Space…** appears when Herdr detects Git and DevVM 0.1.0 on the checkout’s host.
+1. Open a Git space, then right-click it in the sidebar. **New DevVM Space** appears when Herdr detects Git and DevVM 0.1.0 on the checkout’s host.
 2. Enter a branch name and select **Create** or press Enter. A new branch starts at the source checkout’s current `HEAD`. An existing branch must not be checked out elsewhere. **Check setup** runs the host checks without creating a worktree or VM.
 3. Leave the dialog open. First boot can take several minutes. Closing it is not a reliable way to cancel; if it closes during setup, check `devvm ls` and the host logs before retrying.
 
@@ -87,7 +87,7 @@ Fix the issue and choose **Retry**, or reopen the dialog from the same repo and 
 
 | If this happens | Try this |
 | --- | --- |
-| **New DevVM Space…** is missing | Check that `main-devvm` is active, the space is in a Git repo, and the matching installer host check passes. |
+| **New DevVM Space** is missing | Check that `main-devvm` is active, the space is in a Git repo, and the matching installer host check passes. |
 | Host check fails | Run `devvm doctor` on the source host and check that Herdr can find the required tools. For remote sources, also verify batch SSH and make sure remote shell startup does not print to stdout. |
 | Worktree setup fails | Check the branch and `worktrees.directory`. Use a different branch if the requested one is checked out elsewhere. |
 | Boot fails or times out | Check `devvm ls` and the log from **Copy details**. The mod waits up to 10 minutes. If DevVM needs input or more time, run `devvm --clone` interactively from the exact worktree, then exit the guest shell and retry. |
