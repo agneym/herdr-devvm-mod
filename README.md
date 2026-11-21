@@ -4,6 +4,8 @@ Right-click a Git space and choose **New DevVM Space** to open a branch in a Dev
 
 The source checkout can be local or on a macOS or Linux machine connected to Herdr over SSH. This is a personal mod, not a built-in Herdr feature. Install it only if you trust it to run commands as your desktop and source users.
 
+See the [context menu preview and gallery recipe](https://github.com/agneym/herdr-devvm-mod/blob/main/RECIPE.md).
+
 ## Prerequisites
 
 - **Herdr App 0.1.16** on Linux or macOS. The release bundles patched copies of this version’s default layout and mods.
@@ -103,6 +105,8 @@ sh -n host.sh && sh -n bridge.sh
 
 For native render checks, run `sh tests/check-herdr.sh /path/to/app-checkout /path/to/herdr-app /path/to/hc` with the Herdr App v0.1.16 tag and executable. On Linux without system fonts, set `DEVVM_TEST_FONT_DIR` to a fallback font directory. This does not boot a VM. For a live smoke test, use a disposable Core session and Git repo, create a guest space, open a new tab in it, then repeat the same branch and confirm that Herdr selects the existing space.
 
+The `mods/` directory is a snapshot of the release bundle for the Herdr Mods gallery. Refresh it from the built archive when updating the gallery entry; make implementation changes in the source files, not the snapshot.
+
 ## License
 
-[MIT](LICENSE). Herdr files copied at install time remain subject to [Herdr App’s upstream license](https://github.com/herdrdev/herdr-app/blob/v0.1.16/LICENSE).
+Original mod code is [MIT](LICENSE). The shipped Herdr code adapted in the gallery snapshot and release bundle remains under [Herdr App’s upstream license](LICENSE.herdr-app).
